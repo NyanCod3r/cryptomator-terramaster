@@ -16,7 +16,7 @@ auth = "Skymatic GmbH"
 version = 0.0.0
 descript = "Cloud文件透明加密工具"
 
-[zh-tw]
+[zh-hk]
 name = "Cryptomator"
 auth = "Skymatic GmbH"
 version = 0.0.0
@@ -27,3 +27,57 @@ name = "Cryptomator"
 auth = "Skymatic GmbH"
 version = 0.0.0
 descript = "Chiffrement transparent cote client pour vos fichiers cloud"
+
+[es-es]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Cifrado transparente del lado del cliente para sus archivos en la nube"
+
+[it-it]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Crittografia trasparente lato client per i tuoi file cloud"
+
+[ja-jp]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "クラウドファイルの透過的クライアント側暗号化"
+
+[ko-kr]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "클라우드 파일을 위한 투명한 클라이언트 측 암호화"
+
+[ru-ru]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Prozrachnoe shifrovanie na storone klienta dlya oblachnykh fajlov"
+
+[pl-pl]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Przezroczyste szyfrowanie po stronie klienta dla plikow w chmurze"
+
+[tr-tr]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Bulut dosyalariniz icin seffaf istemci tarafi sifreleme"
+
+[pt-pt]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Criptografia transparente do lado do cliente para seus arquivos na nuvem"
+
+[hu-hu]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Atlatszos ugyfeloldali titkositas a felhofajlokhoz"

@@ -1,15 +1,11 @@
 [Unit]
-Description=Cryptomator Vault Service
-After=network-online.target
-Wants=network-online.target
+Description=Cryptomator Vault Encryption
+After=TOSDaemon.service
 
 [Service]
-Type=simple
-EnvironmentFile=-/usr/local/app/cryptomator/config/cryptomator.env
-ExecStart=/usr/local/app/cryptomator/bin/cryptomator
-ExecStop=/bin/kill -TERM $MAINPID
-Restart=on-failure
-RestartSec=10
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=tnas-system.target

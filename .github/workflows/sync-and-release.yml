@@ -178,10 +178,7 @@ jobs:
           cp tpk/scripts/remove.sh "${PKG_DIR}/scripts/"
           chmod +x "${PKG_DIR}/scripts/"*.sh
 
-          ICON_SRC=$(find /tmp/squashfs-root -maxdepth 2 -name "cryptomator.png" -o -name "org.cryptomator.Cryptomator.png" | head -1)
-          if [ -n "$ICON_SRC" ]; then
-            cp "$ICON_SRC" "${PKG_DIR}/images/icons/cryptomator.png"
-          fi
+          cp tpk/images/icons/cryptomator.svg "${PKG_DIR}/images/icons/cryptomator.svg"
 
           printf '#!/bin/sh\nINSTALL_DIR="/usr/local/app/cryptomator"\nexport LD_LIBRARY_PATH="${INSTALL_DIR}/lib/cryptomator/usr/lib:${LD_LIBRARY_PATH}"\nexec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"\n' \
             > "${PKG_DIR}/bin/cryptomator"
@@ -226,8 +223,8 @@ jobs:
           PAYLOAD_MD5=$(md5sum /tmp/payload.tar.xz | awk '{print $1}')
           echo "Payload MD5: ${PAYLOAD_MD5}"
 
-          # 4. Create minified JSON header with md5 injected
-          jq -c --arg md5 "$PAYLOAD_MD5" '{id: .id, md5: $md5} + (. | to_entries | map(select(.key != "id")) | from_entries)' config.ini > /tmp/header.json
+          # 4. Create minified JSON header with md5 injected (strip internal-only fields)
+          jq -c --arg md5 "$PAYLOAD_MD5" 'del(.user, .group, .low_memory, .cli) | {id: .id, md5: $md5} + (. | to_entries | map(select(.key != "id")) | from_entries)' config.ini > /tmp/header.json
           echo "TPK header:"
           cat /tmp/header.json
 
