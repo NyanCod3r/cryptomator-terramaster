@@ -37,13 +37,7 @@ jobs:
         run: |
           git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git" 2>/dev/null || true
           git fetch upstream --tags
-          git checkout main
-          if git merge upstream/main --no-edit; then
-            git push origin main --tags
-          else
-            echo "::warning::Merge conflict detected, skipping sync"
-            git merge --abort
-          fi
+          git push origin --tags
 
   check-release:
     runs-on: ubuntu-latest
@@ -214,9 +208,11 @@ jobs:
         run: |
           TPK_VERSION="${VERSION}.${{ env.PKG_REVISION }}"
           TPK_NAME="${{ env.APP_NAME }} ${{ matrix.tos_label }} ${TPK_VERSION} ${{ matrix.arch }}.tpk"
-          PKG_BASE="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}"
 
-          TPK_FILE=$(find "${PKG_BASE}" -name "*.tpk" -type f | head -1)
+          echo "Searching for .tpk files under /tmp/app-pkg-tools:"
+          find /tmp/app-pkg-tools -name "*.tpk" -type f 2>/dev/null
+
+          TPK_FILE=$(find /tmp/app-pkg-tools -name "*.tpk" -type f | head -1)
           if [ -z "$TPK_FILE" ]; then
             echo "::error::No .tpk file produced"
             exit 1
