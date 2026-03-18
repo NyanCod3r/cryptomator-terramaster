@@ -143,26 +143,20 @@ exec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"
 WRAPPER
 chmod +x "${PKG_DIR}/bin/cryptomator"
 
-echo ">>> Building TPK"
-cd "${BUILD_DIR}/app-pkg-tools"
-chmod +x "${MAKEAPP_TOOL}" 2>/dev/null || true
-if ./"${MAKEAPP_TOOL}" -path "${APP_DIR_PREFIX}/${APP_NAME}"; then
-    echo "Built with official makeapp tool"
-else
-    echo "Warning: makeapp failed, building archive manually"
-    cd "${APP_DIR_PREFIX}/${APP_NAME}/output"
-    tar czf "../${APP_NAME}.tpk" .
-fi
+echo ">>> Computing MD5 and building TPK"
+cd "${PKG_DIR}"
+MD5=$(find . -type f ! -name config.ini -exec md5sum {} \; | sort | md5sum | awk '{print $1}')
+echo "MD5: ${MD5}"
+jq --arg md5 "$MD5" '.md5 = $md5' config.ini > config.ini.tmp && mv config.ini.tmp config.ini
 
-echo ">>> Collecting output"
+echo "Final config.ini:"
+cat config.ini
+
+echo ">>> Creating TPK archive"
 mkdir -p "${REPO_DIR}/dist"
-TPK_FILE=$(find "${BUILD_DIR}/app-pkg-tools/${APP_DIR_PREFIX}/${APP_NAME}" -name "*.tpk" -type f | head -1)
-if [ -z "$TPK_FILE" ]; then
-    echo "Error: No .tpk file produced"
-    exit 1
-fi
+cd "${PKG_DIR}"
+tar czf "${REPO_DIR}/dist/${TPK_NAME}" .
 
-cp "$TPK_FILE" "${REPO_DIR}/dist/${TPK_NAME}"
 echo ""
 echo "Done: dist/${TPK_NAME}"
 ls -lh "${REPO_DIR}/dist/${TPK_NAME}"

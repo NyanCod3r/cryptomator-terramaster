@@ -194,32 +194,29 @@ jobs:
 
       - name: Build TPK package
         run: |
-          cd /tmp/app-pkg-tools
-          chmod +x "${{ matrix.makeapp_tool }}" 2>/dev/null || true
-          if ./${{ matrix.makeapp_tool }} -path "${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}"; then
-            echo "Built with official makeapp tool"
-          else
-            echo "::warning::makeapp tool failed, building archive manually"
-            cd "${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
-            tar czf "../${{ env.APP_NAME }}.tpk" .
-          fi
+          PKG_DIR="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
+          cd "${PKG_DIR}"
+
+          echo "Computing MD5 checksum for config.ini..."
+          MD5=$(find . -type f ! -name config.ini -exec md5sum {} \; | sort | md5sum | awk '{print $1}')
+          echo "MD5: ${MD5}"
+          jq --arg md5 "$MD5" '.md5 = $md5' config.ini > config.ini.tmp && mv config.ini.tmp config.ini
+
+          echo "Final config.ini:"
+          cat config.ini
+
+          echo "Creating TPK archive..."
+          cd "${PKG_DIR}"
+          tar czf "/tmp/${{ env.APP_NAME }}.tpk" .
+          echo "TPK size: $(du -h /tmp/${{ env.APP_NAME }}.tpk | cut -f1)"
 
       - name: Collect and rename TPK
         run: |
           TPK_VERSION="${VERSION}.${{ env.PKG_REVISION }}"
           TPK_NAME="${{ env.APP_NAME }} ${{ matrix.tos_label }} ${TPK_VERSION} ${{ matrix.arch }}.tpk"
 
-          echo "Searching for .tpk files under /tmp/app-pkg-tools:"
-          find /tmp/app-pkg-tools -name "*.tpk" -type f 2>/dev/null
-
-          TPK_FILE=$(find /tmp/app-pkg-tools -name "*.tpk" -type f | head -1)
-          if [ -z "$TPK_FILE" ]; then
-            echo "::error::No .tpk file produced"
-            exit 1
-          fi
-
           mkdir -p "${{ github.workspace }}/dist"
-          cp "$TPK_FILE" "${{ github.workspace }}/dist/${TPK_NAME}"
+          cp "/tmp/${{ env.APP_NAME }}.tpk" "${{ github.workspace }}/dist/${TPK_NAME}"
           echo "Packaged: ${TPK_NAME}"
           ls -lh "${{ github.workspace }}/dist/"
 
