@@ -173,7 +173,8 @@ jobs:
           sed -i "s/^version = .*/version = ${VERSION}/" tpk/cryptomator.lang
           cp tpk/cryptomator.lang "${PKG_DIR}/"
 
-          cp tpk/init.d/cryptomator.service "${PKG_DIR}/init.d/"
+          cp tpk/init.d/service "${PKG_DIR}/init.d/"
+          chmod +x "${PKG_DIR}/init.d/service"
           cp tpk/scripts/install.sh "${PKG_DIR}/scripts/"
           cp tpk/scripts/remove.sh "${PKG_DIR}/scripts/"
           chmod +x "${PKG_DIR}/scripts/"*.sh

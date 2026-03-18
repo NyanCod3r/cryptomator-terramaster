@@ -123,7 +123,8 @@ envsubst '${TPK_VERSION} ${PLATFORM}' \
 sed "s/^version = .*/version = ${VERSION}/" \
     "${REPO_DIR}/tpk/cryptomator.lang" > "${PKG_DIR}/cryptomator.lang"
 
-cp "${REPO_DIR}/tpk/init.d/cryptomator.service" "${PKG_DIR}/init.d/"
+cp "${REPO_DIR}/tpk/init.d/service" "${PKG_DIR}/init.d/"
+chmod +x "${PKG_DIR}/init.d/service"
 cp "${REPO_DIR}/tpk/scripts/install.sh" "${PKG_DIR}/scripts/"
 cp "${REPO_DIR}/tpk/scripts/remove.sh" "${PKG_DIR}/scripts/"
 chmod +x "${PKG_DIR}/scripts/"*.sh
