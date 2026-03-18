@@ -191,12 +191,8 @@ jobs:
             cp "$ICON_SRC" "${PKG_DIR}/images/icons/cryptomator.png"
           fi
 
-          cat > "${PKG_DIR}/bin/cryptomator" << 'WRAPPER'
-#!/bin/sh
-INSTALL_DIR="/usr/local/app/cryptomator"
-export LD_LIBRARY_PATH="${INSTALL_DIR}/lib/cryptomator/usr/lib:${LD_LIBRARY_PATH}"
-exec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"
-WRAPPER
+          printf '#!/bin/sh\nINSTALL_DIR="/usr/local/app/cryptomator"\nexport LD_LIBRARY_PATH="${INSTALL_DIR}/lib/cryptomator/usr/lib:${LD_LIBRARY_PATH}"\nexec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"\n' \
+            > "${PKG_DIR}/bin/cryptomator"
           chmod +x "${PKG_DIR}/bin/cryptomator"
 
           echo "Package structure:"
