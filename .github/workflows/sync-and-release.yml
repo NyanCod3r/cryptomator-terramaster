@@ -95,12 +95,10 @@ jobs:
         include:
           - arch: x86_64
             tos_label: TOS7_TOS6
-            makeapp_tool: makeapp_x64
             app_dir_prefix: x64_tos6_apps
             appimage_suffix: x86_64
           - arch: aarch64
             tos_label: TOS6
-            makeapp_tool: makeapp_arm
             app_dir_prefix: arm_tos6_apps
             appimage_suffix: aarch64
     env:
@@ -109,7 +107,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq file squashfs-tools
+        run: sudo apt-get update && sudo apt-get install -y jq file squashfs-tools xz-utils
 
       - name: Clone TOS app-pkg-tools
         run: git clone --depth 1 https://github.com/TerraMasterOfficial/app-pkg-tools.git /tmp/app-pkg-tools
@@ -197,17 +195,59 @@ jobs:
           PKG_DIR="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
           cd "${PKG_DIR}"
 
-          echo "Computing MD5 checksum for config.ini..."
-          MD5=$(find . -type f ! -name config.ini -exec md5sum {} \; | sort | md5sum | awk '{print $1}')
-          echo "MD5: ${MD5}"
-          jq --arg md5 "$MD5" '.md5 = $md5' config.ini > config.ini.tmp && mv config.ini.tmp config.ini
+          # TPK binary format (reverse-engineered from official makeapp tool):
+          #   [2048 bytes] JSON config header with md5 field, null-padded
+          #   [8192 bytes] .lang file content, null-padded
+          #   [remainder]  tar.xz archive of app files
+          #
+          # The md5 in the header = MD5 of the tar.xz payload.
+          # The config.ini INSIDE the tar does NOT have an md5 field.
 
-          echo "Final config.ini:"
-          cat config.ini
+          # 1. Generate INFO manifest (all files/folders except INFO and config.ini)
+          echo "Generating INFO manifest..."
+          : > INFO
+          find . -mindepth 1 -not -name INFO -not -name config.ini -not -path ./INFO -not -path ./config.ini | sort | while IFS= read -r entry; do
+            entry="${entry#./}"
+            if [ -d "$entry" ]; then
+              echo "1:folder:${entry}:" >> INFO
+            elif [ -f "$entry" ]; then
+              fmd5=$(md5sum "$entry" | awk '{print $1}')
+              echo "1:file:${entry}:${fmd5}" >> INFO
+            fi
+          done
+          echo "INFO manifest:"
+          cat INFO
 
-          echo "Creating TPK archive..."
-          cd "${PKG_DIR}"
-          tar czf "/tmp/${{ env.APP_NAME }}.tpk" .
+          # 2. Create tar.xz of all files in the output directory
+          echo "Creating tar.xz payload..."
+          tar cJf /tmp/payload.tar.xz .
+
+          # 3. Compute MD5 of the tar.xz payload
+          PAYLOAD_MD5=$(md5sum /tmp/payload.tar.xz | awk '{print $1}')
+          echo "Payload MD5: ${PAYLOAD_MD5}"
+
+          # 4. Create minified JSON header with md5 injected
+          jq -c --arg md5 "$PAYLOAD_MD5" '{id: .id, md5: $md5} + (. | to_entries | map(select(.key != "id")) | from_entries)' config.ini > /tmp/header.json
+          echo "TPK header:"
+          cat /tmp/header.json
+
+          # 5. Assemble TPK: [2048-byte header] + [8192-byte lang] + [tar.xz]
+          python3 -c "
+          import sys
+          header = open('/tmp/header.json','rb').read()
+          lang = open('${{ env.APP_ID }}.lang','rb').read()
+          payload = open('/tmp/payload.tar.xz','rb').read()
+          if len(header) > 2048:
+              print(f'ERROR: JSON header too large ({len(header)} > 2048)', file=sys.stderr)
+              sys.exit(1)
+          if len(lang) > 8192:
+              print(f'ERROR: Lang file too large ({len(lang)} > 8192)', file=sys.stderr)
+              sys.exit(1)
+          tpk = header + b'\x00' * (2048 - len(header)) + lang + b'\x00' * (8192 - len(lang)) + payload
+          open('/tmp/${{ env.APP_NAME }}.tpk','wb').write(tpk)
+          print(f'TPK assembled: {len(tpk)} bytes (header={len(header)}, lang={len(lang)}, payload={len(payload)})')
+          "
+
           echo "TPK size: $(du -h /tmp/${{ env.APP_NAME }}.tpk | cut -f1)"
 
       - name: Collect and rename TPK

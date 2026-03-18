@@ -143,19 +143,58 @@ exec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"
 WRAPPER
 chmod +x "${PKG_DIR}/bin/cryptomator"
 
-echo ">>> Computing MD5 and building TPK"
+echo ">>> Building TPK (proper binary format)"
 cd "${PKG_DIR}"
-MD5=$(find . -type f ! -name config.ini -exec md5sum {} \; | sort | md5sum | awk '{print $1}')
-echo "MD5: ${MD5}"
-jq --arg md5 "$MD5" '.md5 = $md5' config.ini > config.ini.tmp && mv config.ini.tmp config.ini
 
-echo "Final config.ini:"
-cat config.ini
+# TPK binary format (reverse-engineered from official makeapp tool):
+#   [2048 bytes] JSON config header with md5 field, null-padded
+#   [8192 bytes] .lang file content, null-padded
+#   [remainder]  tar.xz archive of app files
+#
+# The md5 in the header = MD5 of the tar.xz payload.
+# The config.ini INSIDE the tar does NOT have an md5 field.
 
-echo ">>> Creating TPK archive"
+# 1. Generate INFO manifest (all files/folders except INFO and config.ini)
+echo "Generating INFO manifest..."
+: > INFO
+find . -mindepth 1 -not -name INFO -not -name config.ini -not -path ./INFO -not -path ./config.ini | sort | while IFS= read -r entry; do
+    entry="${entry#./}"
+    if [ -d "$entry" ]; then
+        echo "1:folder:${entry}:" >> INFO
+    elif [ -f "$entry" ]; then
+        fmd5=$(md5sum "$entry" | awk '{print $1}')
+        echo "1:file:${entry}:${fmd5}" >> INFO
+    fi
+done
+
+# 2. Create tar.xz of all files in the output directory
+echo "Creating tar.xz payload..."
+tar cJf /tmp/payload.tar.xz .
+
+# 3. Compute MD5 of the tar.xz payload
+PAYLOAD_MD5=$(md5sum /tmp/payload.tar.xz | awk '{print $1}')
+echo "Payload MD5: ${PAYLOAD_MD5}"
+
+# 4. Create minified JSON header with md5 injected as second field
+jq -c --arg md5 "$PAYLOAD_MD5" '{id: .id, md5: $md5} + (. | to_entries | map(select(.key != "id")) | from_entries)' config.ini > /tmp/header.json
+
+# 5. Assemble TPK: [2048-byte header] + [8192-byte lang] + [tar.xz]
 mkdir -p "${REPO_DIR}/dist"
-cd "${PKG_DIR}"
-tar czf "${REPO_DIR}/dist/${TPK_NAME}" .
+python3 -c "
+import sys
+header = open('/tmp/header.json','rb').read()
+lang = open('${APP_ID}.lang','rb').read()
+payload = open('/tmp/payload.tar.xz','rb').read()
+if len(header) > 2048:
+    print(f'ERROR: JSON header too large ({len(header)} > 2048)', file=sys.stderr)
+    sys.exit(1)
+if len(lang) > 8192:
+    print(f'ERROR: Lang file too large ({len(lang)} > 8192)', file=sys.stderr)
+    sys.exit(1)
+tpk = header + b'\x00' * (2048 - len(header)) + lang + b'\x00' * (8192 - len(lang)) + payload
+open('${REPO_DIR}/dist/${TPK_NAME}','wb').write(tpk)
+print(f'TPK assembled: {len(tpk)} bytes (header={len(header)}, lang={len(lang)}, payload={len(payload)})')
+"
 
 echo ""
 echo "Done: dist/${TPK_NAME}"
