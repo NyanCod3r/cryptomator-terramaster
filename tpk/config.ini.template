@@ -1,0 +1,29 @@
+{
+  "id": "cryptomator",
+  "md5": "",
+  "path": "/cryptomator/",
+  "icon": "/images/icons/cryptomator.png",
+  "name": "Cryptomator",
+  "exec": true,
+  "user": "",
+  "group": "",
+  "open_path": false,
+  "resize": true,
+  "state": false,
+  "type": "",
+  "help": "https://cryptomator.org/",
+  "version": "${TPK_VERSION}",
+  "recommend": true,
+  "beta": false,
+  "category": "Security",
+  "depend": [],
+  "platform": "${PLATFORM}",
+  "low_version": "6.0.0",
+  "reset": false,
+  "official": "",
+  "maxmin": true,
+  "cli": {
+    "name": "cryptomator",
+    "path": "bin/cryptomator"
+  }
+}

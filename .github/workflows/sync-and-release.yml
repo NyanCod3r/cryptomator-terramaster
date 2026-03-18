@@ -1,0 +1,285 @@
+name: Sync Upstream and Release TPK
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_version:
+        description: 'Force build for a specific upstream version (e.g. 1.19.1)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM_REPO: cryptomator/cryptomator
+  APP_NAME: Cryptomator
+  APP_ID: cryptomator
+  PKG_REVISION: "0"
+
+jobs:
+  sync-fork:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync fork with upstream
+        run: |
+          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git" 2>/dev/null || true
+          git fetch upstream --tags
+          git checkout main
+          if git merge upstream/main --no-edit; then
+            git push origin main --tags
+          else
+            echo "::warning::Merge conflict detected, skipping sync"
+            git merge --abort
+          fi
+
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.check.outputs.new_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check for new upstream release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCE_VERSION: ${{ inputs.force_version }}
+        run: |
+          if [ -n "$FORCE_VERSION" ]; then
+            echo "Forced version: $FORCE_VERSION"
+            echo "version=$FORCE_VERSION" >> "$GITHUB_OUTPUT"
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          UPSTREAM_TAG=$(curl -sf \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest" \
+            | jq -r '.tag_name')
+
+          LOCAL_TAG=$(curl -sf \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            | jq -r '.tag_name // empty' 2>/dev/null || true)
+
+          echo "Upstream: $UPSTREAM_TAG | Local: $LOCAL_TAG"
+
+          if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
+            echo "::error::Failed to fetch upstream release tag"
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$UPSTREAM_TAG" != "$LOCAL_TAG" ]; then
+            echo "New release detected: $UPSTREAM_TAG"
+            echo "version=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Already up to date"
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-tpk:
+    needs: check-release
+    if: needs.check-release.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            tos_label: TOS7_TOS6
+            makeapp_tool: makeapp_x64
+            app_dir_prefix: x64_tos6_apps
+            appimage_suffix: x86_64
+          - arch: aarch64
+            tos_label: TOS6
+            makeapp_tool: makeapp_arm
+            app_dir_prefix: arm_tos6_apps
+            appimage_suffix: aarch64
+    env:
+      VERSION: ${{ needs.check-release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq file squashfs-tools
+
+      - name: Clone TOS app-pkg-tools
+        run: git clone --depth 1 https://github.com/TerraMasterOfficial/app-pkg-tools.git /tmp/app-pkg-tools
+
+      - name: Download Cryptomator AppImage
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_JSON=$(curl -sf \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${VERSION}")
+
+          DOWNLOAD_URL=$(echo "$RELEASE_JSON" \
+            | jq -r ".assets[] | select(.name | test(\"cryptomator-.*${{ matrix.appimage_suffix }}.*\\\\.AppImage$\")) | .browser_download_url" \
+            | head -1)
+
+          if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
+            echo "::error::No AppImage found for ${{ matrix.arch }} in release ${VERSION}"
+            echo "Available assets:"
+            echo "$RELEASE_JSON" | jq -r '.assets[].name'
+            exit 1
+          fi
+
+          echo "Downloading: $DOWNLOAD_URL"
+          curl -sSfL -o /tmp/cryptomator.AppImage "$DOWNLOAD_URL"
+          chmod +x /tmp/cryptomator.AppImage
+
+      - name: Extract AppImage
+        run: |
+          cd /tmp
+          if ! ./cryptomator.AppImage --appimage-extract 2>/dev/null; then
+            echo "Native extraction failed, using unsquashfs for cross-arch"
+            OFFSET=$(grep -Poab 'hsqs' cryptomator.AppImage | head -1 | cut -d: -f1)
+            if [ -z "$OFFSET" ]; then
+              echo "::error::Cannot find squashfs in AppImage"
+              exit 1
+            fi
+            unsquashfs -offset "$OFFSET" -dest squashfs-root cryptomator.AppImage
+          fi
+          echo "Extracted contents:"
+          ls -la squashfs-root/
+
+      - name: Prepare TOS package structure
+        run: |
+          PKG_DIR="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
+          mkdir -p "${PKG_DIR}/bin"
+          mkdir -p "${PKG_DIR}/lib/cryptomator"
+          mkdir -p "${PKG_DIR}/images/icons"
+          mkdir -p "${PKG_DIR}/init.d"
+          mkdir -p "${PKG_DIR}/scripts"
+          mkdir -p "${PKG_DIR}/config"
+
+          cp -a /tmp/squashfs-root/* "${PKG_DIR}/lib/cryptomator/"
+
+          TPK_VERSION="${VERSION}.${{ env.PKG_REVISION }}"
+
+          export TPK_VERSION
+          export PLATFORM="${{ matrix.arch }}"
+          envsubst '${TPK_VERSION} ${PLATFORM}' \
+            < tpk/config.ini.template \
+            > "${PKG_DIR}/config.ini"
+
+          sed -i "s/^version = .*/version = ${VERSION}/" tpk/cryptomator.lang
+          cp tpk/cryptomator.lang "${PKG_DIR}/"
+
+          cp tpk/init.d/cryptomator.service "${PKG_DIR}/init.d/"
+          cp tpk/scripts/install.sh "${PKG_DIR}/scripts/"
+          cp tpk/scripts/remove.sh "${PKG_DIR}/scripts/"
+          chmod +x "${PKG_DIR}/scripts/"*.sh
+
+          ICON_SRC=$(find /tmp/squashfs-root -maxdepth 2 -name "cryptomator.png" -o -name "org.cryptomator.Cryptomator.png" | head -1)
+          if [ -n "$ICON_SRC" ]; then
+            cp "$ICON_SRC" "${PKG_DIR}/images/icons/cryptomator.png"
+          fi
+
+          cat > "${PKG_DIR}/bin/cryptomator" << 'WRAPPER'
+#!/bin/sh
+INSTALL_DIR="/usr/local/app/cryptomator"
+export LD_LIBRARY_PATH="${INSTALL_DIR}/lib/cryptomator/usr/lib:${LD_LIBRARY_PATH}"
+exec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"
+WRAPPER
+          chmod +x "${PKG_DIR}/bin/cryptomator"
+
+          echo "Package structure:"
+          find "${PKG_DIR}" -maxdepth 3 -type f | sort
+
+      - name: Build TPK package
+        run: |
+          cd /tmp/app-pkg-tools
+          chmod +x "${{ matrix.makeapp_tool }}" 2>/dev/null || true
+          if ./${{ matrix.makeapp_tool }} -path "${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}"; then
+            echo "Built with official makeapp tool"
+          else
+            echo "::warning::makeapp tool failed, building archive manually"
+            cd "${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
+            tar czf "../${{ env.APP_NAME }}.tpk" .
+          fi
+
+      - name: Collect and rename TPK
+        run: |
+          TPK_VERSION="${VERSION}.${{ env.PKG_REVISION }}"
+          TPK_NAME="${{ env.APP_NAME }} ${{ matrix.tos_label }} ${TPK_VERSION} ${{ matrix.arch }}.tpk"
+          PKG_BASE="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}"
+
+          TPK_FILE=$(find "${PKG_BASE}" -name "*.tpk" -type f | head -1)
+          if [ -z "$TPK_FILE" ]; then
+            echo "::error::No .tpk file produced"
+            exit 1
+          fi
+
+          mkdir -p "${{ github.workspace }}/dist"
+          cp "$TPK_FILE" "${{ github.workspace }}/dist/${TPK_NAME}"
+          echo "Packaged: ${TPK_NAME}"
+          ls -lh "${{ github.workspace }}/dist/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpk-${{ matrix.arch }}
+          path: dist/*.tpk
+          retention-days: 5
+
+  release:
+    needs: [check-release, build-tpk]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.check-release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all TPK artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List release artifacts
+        run: ls -lh dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: "Cryptomator ${{ env.VERSION }} for TerraMaster TOS"
+          body: |
+            Automated TerraMaster TOS package build for [Cryptomator ${{ env.VERSION }}](https://github.com/${{ env.UPSTREAM_REPO }}/releases/tag/${{ env.VERSION }}).
+
+            ## Packages
+            | File | Architecture | TOS Compatibility |
+            |------|-------------|-------------------|
+            | `Cryptomator TOS7_TOS6 ${{ env.VERSION }}.0 x86_64.tpk` | x86_64 (Intel/AMD) | TOS 6 + TOS 7 |
+            | `Cryptomator TOS6 ${{ env.VERSION }}.0 aarch64.tpk` | aarch64 (ARM) | TOS 6 |
+
+            ## Installation
+            1. Download the `.tpk` matching your NAS architecture
+            2. Open the TOS web interface
+            3. Navigate to **App Management** > **Install from TPK**
+            4. Select the downloaded `.tpk` file and install
+
+            ## Notes
+            - Built from upstream Cryptomator release artifacts (AppImage)
+            - Packaged using [TerraMaster app-pkg-tools](https://github.com/TerraMasterOfficial/app-pkg-tools)
+          files: dist/*.tpk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

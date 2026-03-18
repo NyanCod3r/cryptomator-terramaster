@@ -1,0 +1,29 @@
+[en-us]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Transparent client-side encryption for your cloud files"
+
+[de-de]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Transparente clientseitige Verschluesselung fuer Ihre Cloud-Dateien"
+
+[zh-cn]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Cloud文件透明加密工具"
+
+[zh-tw]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Cloud文件透明加密工具"
+
+[fr-fr]
+name = "Cryptomator"
+auth = "Skymatic GmbH"
+version = 0.0.0
+descript = "Chiffrement transparent cote client pour vos fichiers cloud"
