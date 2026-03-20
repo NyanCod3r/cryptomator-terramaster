@@ -34,8 +34,8 @@ class CheckHostTrustControllerTest {
 			"https://example.com/foo/bar, https://example.com",
 			"https://example.com:8080, https://example.com:8080",
 			"https://user@example.com:8080/foo/bar, https://example.com:8080",
-			"https://user@example.com:443/foo/bar, https://example.com",
-			"http://user@example.com:80/foo/bar?foo=bar, http://example.com",
+			"https://user@example.com:443/foo/bar, https://example.com:443",
+			"http://user@example.com:80/foo/bar?foo=bar, http://example.com:80",
 			"http://user@example.com:8080/foo/bar?foo=bar, http://example.com:8080"
 	})
 	void testGetAuthority(String input, String expected) {

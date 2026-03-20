@@ -160,12 +160,11 @@ public class CheckHostTrustController implements FxController {
 	}
 
 	public static String getAuthority(URI uri) {
-		return switch (uri.getPort()) {
-			case -1 -> "%s://%s".formatted(uri.getScheme(), uri.getHost());
-			case 80 -> "http://%s".formatted(uri.getHost());
-			case 443 -> "https://%s".formatted(uri.getHost());
-			default -> "%s://%s:%s".formatted(uri.getScheme(), uri.getHost(), uri.getPort());
-		};
+		if (uri.getPort() == -1) {
+			return "%s://%s".formatted(uri.getScheme(), uri.getHost());
+		} else {
+			return "%s://%s:%s".formatted(uri.getScheme(), uri.getHost(), uri.getPort());
+		}
 	}
 
 	//--- JavaFX property getter & setter
