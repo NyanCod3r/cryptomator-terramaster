@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The changelog starts with version 1.19.0.
 Changes to prior versions can be found on the [Github release page](https://github.com/cryptomator/cryptomator/releases).
 
+## [1.19.2](https://github.com/cryptomator/cryptomator/releases/1.19.2) - 2026-03-20
+
+### Security
+* Cryptomamtor Hub Vaults: Additional patch for (#4179, [GHSA-34rf-rwr3-7g43](https://github.com/cryptomator/cryptomator/security/advisories/GHSA-34rf-rwr3-7g43))
+
 
 ## [1.19.1](https://github.com/cryptomator/cryptomator/releases/1.19.1) - 2026-03-12
 
