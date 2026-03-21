@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Force build for a specific upstream version (e.g. 1.19.1)'
+        description: 'Force build for a specific cryptomator/cli version (e.g. 0.6.2)'
         required: false
         type: string
 
@@ -25,7 +25,6 @@ jobs:
     outputs:
       new_release: ${{ steps.check.outputs.new_release }}
       version: ${{ steps.check.outputs.version }}
-      release_url: ${{ steps.check.outputs.release_url }}
     steps:
       - name: Check for new upstream release
         id: check
@@ -37,20 +36,13 @@ jobs:
             echo "Forced version: $FORCE_VERSION"
             echo "version=$FORCE_VERSION" >> "$GITHUB_OUTPUT"
             echo "new_release=true" >> "$GITHUB_OUTPUT"
-            RELEASE_URL=$(curl -sf \
-              -H "Authorization: token $GH_TOKEN" \
-              "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${FORCE_VERSION}" \
-              | jq -r '.url')
-            echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          UPSTREAM_JSON=$(curl -sf \
+          UPSTREAM_TAG=$(curl -sf \
             -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest")
-
-          UPSTREAM_TAG=$(echo "$UPSTREAM_JSON" | jq -r '.tag_name')
-          RELEASE_URL=$(echo "$UPSTREAM_JSON" | jq -r '.url')
+            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest" \
+            | jq -r '.tag_name')
 
           LOCAL_TAG=$(curl -sf \
             -H "Authorization: token $GH_TOKEN" \
@@ -58,7 +50,6 @@ jobs:
             | jq -r '.tag_name // empty' 2>/dev/null || true)
 
           echo "Upstream: $UPSTREAM_TAG | Local: $LOCAL_TAG"
-          echo "Release API URL: $RELEASE_URL"
 
           if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
             echo "::error::Failed to fetch upstream release tag"
@@ -69,7 +60,6 @@ jobs:
           if [ "$UPSTREAM_TAG" != "$LOCAL_TAG" ]; then
             echo "New release detected: $UPSTREAM_TAG"
             echo "version=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
-            echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
             echo "new_release=true" >> "$GITHUB_OUTPUT"
           else
             echo "Already up to date"
@@ -106,12 +96,17 @@ jobs:
       - name: Download Cryptomator CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_URL: ${{ needs.check-release.outputs.release_url }}
         run: |
-          echo "Fetching release from: $RELEASE_URL"
+          RELEASE_API="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${VERSION}"
+          echo "Fetching release: $RELEASE_API"
           RELEASE_JSON=$(curl -sf \
             -H "Authorization: token $GH_TOKEN" \
-            "$RELEASE_URL")
+            "$RELEASE_API" || true)
+
+          if [ -z "$RELEASE_JSON" ] || [ "$(echo "$RELEASE_JSON" | jq -r '.message // empty')" = "Not Found" ]; then
+            echo "::error::Release ${VERSION} not found in ${{ env.UPSTREAM_REPO }}. Valid versions: https://github.com/${{ env.UPSTREAM_REPO }}/releases"
+            exit 1
+          fi
 
           DOWNLOAD_URL=$(echo "$RELEASE_JSON" \
             | jq -r ".assets[] | select(.name | test(\"cryptomator-cli-.*${{ matrix.cli_arch }}.*\\\\.zip$\")) | .browser_download_url" \
