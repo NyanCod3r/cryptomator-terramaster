@@ -36,8 +36,8 @@ jobs:
       - name: Sync fork with upstream
         run: |
           git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git" 2>/dev/null || true
-          git fetch upstream --tags
-          git push origin --tags
+          git fetch upstream --tags --force
+          git push origin --tags --force
 
   check-release:
     runs-on: ubuntu-latest
