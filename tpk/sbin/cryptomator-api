@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Cryptomator TOS6 API backend - manages vaults via cryptomator-cli."""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+from urllib.parse import urlparse
+
+APP_ROOT = Path(__file__).resolve().parent.parent
+CLI_BIN = APP_ROOT / "lib" / "cryptomator-cli" / "bin" / "cryptomator-cli"
+CONFIG_DIR = APP_ROOT / "config"
+VAULTS_FILE = CONFIG_DIR / "vaults.json"
+MOUNT_BASE = Path("/mnt/cryptomator")
+SOCK_PATH = "/var/api/cryptomator.sock"
+LOG_FILE = "/var/log/cryptomator-api.log"
+
+vault_procs = {}
+
+
+def load_vaults():
+    if VAULTS_FILE.exists():
+        with open(VAULTS_FILE) as f:
+            return json.load(f)
+    return []
+
+
+def save_vaults(vaults):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = str(VAULTS_FILE) + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(vaults, f, indent=2)
+    os.replace(tmp, str(VAULTS_FILE))
+
+
+def make_resp(code=True, data=None, msg=""):
+    return json.dumps({
+        "is_login": True,
+        "code": code,
+        "msg": msg,
+        "data": data,
+        "time": 0,
+        "code_num": 0 if code else -1,
+        "code_msg": "" if code else msg,
+    }).encode("utf-8")
+
+
+def lock_vault(vid):
+    if vid in vault_procs:
+        proc = vault_procs[vid]
+        if proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        del vault_procs[vid]
+
+
+def get_cli_version():
+    if not CLI_BIN.exists():
+        return "not installed"
+    try:
+        r = subprocess.run(
+            [str(CLI_BIN), "--version"],
+            capture_output=True, text=True, timeout=10
+        )
+        return r.stdout.strip() or r.stderr.strip() or "unknown"
+    except Exception:
+        return "unknown"
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(n)) if n else {}
+
+    def _reply(self, data, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _route(self, method):
+        path = urlparse(self.path).path.rstrip("/") or "/"
+        parts = [p for p in path.split("/") if p]
+        if parts and parts[0] == "cryptomator":
+            rest = "/".join(parts[1:])
+            return self._handle(method, rest)
+        self._reply(make_resp(False, msg="not found"), 404)
+
+    def _handle(self, method, rest):
+        if method == "GET" and rest in ("", "status"):
+            self._reply(make_resp(True, {
+                "version": get_cli_version(),
+                "status": "running",
+                "cli_available": CLI_BIN.exists(),
+            }))
+
+        elif method == "GET" and rest == "vaults":
+            vaults = load_vaults()
+            for v in vaults:
+                vid = v["id"]
+                v["unlocked"] = vid in vault_procs and vault_procs[vid].poll() is None
+            self._reply(make_resp(True, vaults))
+
+        elif method == "POST" and rest == "vaults":
+            body = self._body()
+            vault_path = body.get("path", "").strip()
+            name = body.get("name", "").strip()
+            if not vault_path:
+                return self._reply(make_resp(False, msg="Vault path is required"))
+            p = Path(vault_path)
+            if not p.is_dir():
+                return self._reply(make_resp(False, msg="Path does not exist"))
+            if not (p / "vault.cryptomator").exists() and not (p / "masterkey.cryptomator").exists():
+                return self._reply(make_resp(False, msg="Not a valid Cryptomator vault"))
+            vaults = load_vaults()
+            if any(v["path"] == str(p) for v in vaults):
+                return self._reply(make_resp(False, msg="Vault already added"))
+            vid = str(int(time.time() * 1000))
+            vault = {
+                "id": vid,
+                "name": name or p.name,
+                "path": str(p),
+                "mount_point": str(MOUNT_BASE / vid),
+                "unlocked": False,
+            }
+            vaults.append(vault)
+            save_vaults(vaults)
+            self._reply(make_resp(True, vault))
+
+        elif method == "POST" and "/unlock" in rest:
+            vid = rest.split("/")[0]
+            body = self._body()
+            password = body.get("password", "")
+            if not password:
+                return self._reply(make_resp(False, msg="Password is required"))
+            if not CLI_BIN.exists():
+                return self._reply(make_resp(False, msg="cryptomator-cli not found"))
+            vaults = load_vaults()
+            vault = next((v for v in vaults if v["id"] == vid), None)
+            if not vault:
+                return self._reply(make_resp(False, msg="Vault not found"))
+            if vid in vault_procs and vault_procs[vid].poll() is None:
+                return self._reply(make_resp(False, msg="Vault is already unlocked"))
+            mp = Path(vault["mount_point"])
+            mp.mkdir(parents=True, exist_ok=True)
+            try:
+                proc = subprocess.Popen(
+                    [
+                        str(CLI_BIN), "unlock",
+                        "--password:stdin",
+                        "--mounter=org.cryptomator.frontend.fuse.mount.LinuxFuseMountProvider",
+                        "--mountPoint=" + str(mp),
+                        vault["path"],
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                proc.stdin.write(password.encode() + b"\n")
+                proc.stdin.flush()
+                proc.stdin.close()
+                time.sleep(3)
+                if proc.poll() is not None:
+                    err = proc.stderr.read().decode().strip()
+                    return self._reply(make_resp(False, msg="Unlock failed: " + err))
+                vault_procs[vid] = proc
+                self._reply(make_resp(True, {
+                    "unlocked": True,
+                    "mount_point": str(mp),
+                }))
+            except Exception as e:
+                self._reply(make_resp(False, msg=str(e)))
+
+        elif method == "POST" and "/lock" in rest:
+            vid = rest.split("/")[0]
+            lock_vault(vid)
+            self._reply(make_resp(True, {"unlocked": False}))
+
+        elif method == "DELETE" and rest.startswith("vaults/"):
+            vid = rest.split("/")[1]
+            lock_vault(vid)
+            vaults = load_vaults()
+            vaults = [v for v in vaults if v["id"] != vid]
+            save_vaults(vaults)
+            self._reply(make_resp(True))
+
+        else:
+            self._reply(make_resp(False, msg="not found"), 404)
+
+    def do_GET(self):
+        self._route("GET")
+
+    def do_POST(self):
+        self._route("POST")
+
+    def do_DELETE(self):
+        self._route("DELETE")
+
+
+class UnixHTTPServer(HTTPServer):
+    address_family = socket.AF_UNIX
+
+    def server_bind(self):
+        if os.path.exists(self.server_address):
+            os.unlink(self.server_address)
+        self.socket.bind(self.server_address)
+        os.chmod(self.server_address, 0o666)
+
+    def server_close(self):
+        super().server_close()
+        if os.path.exists(self.server_address):
+            os.unlink(self.server_address)
+
+
+def main():
+    if "-D" in sys.argv:
+        env = os.environ.copy()
+        env["_CRYPTOMATOR_DAEMON"] = "1"
+        subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__)],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+        return
+
+    if os.environ.get("_CRYPTOMATOR_DAEMON") == "1":
+        try:
+            log = open(LOG_FILE, "a")
+            sys.stdout = log
+            sys.stderr = log
+        except Exception:
+            pass
+
+    def shutdown(sig, frame):
+        for vid in list(vault_procs):
+            lock_vault(vid)
+        if os.path.exists(SOCK_PATH):
+            os.unlink(SOCK_PATH)
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    server = UnixHTTPServer(SOCK_PATH, Handler)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()

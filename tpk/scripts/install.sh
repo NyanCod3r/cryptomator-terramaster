@@ -1,20 +1,12 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
-APP_DIR="/usr/local/app/cryptomator"
+ROOT_PATH=$(readlink -f "${BASH_SOURCE[0]}")
+SCRIPTS_PATH=$(dirname "$ROOT_PATH")
+APP_ROOT=$(dirname "$SCRIPTS_PATH")
 
-mkdir -p "${APP_DIR}/config"
-mkdir -p "${APP_DIR}/data"
-
-if [ ! -f "${APP_DIR}/config/cryptomator.env" ]; then
-    cat > "${APP_DIR}/config/cryptomator.env" << 'EOF'
-# Cryptomator environment configuration
-# Add vault paths and options here
-# CRYPTOMATOR_OPTS=""
-EOF
-fi
-
-chmod +x "${APP_DIR}/bin/cryptomator" 2>/dev/null || true
-chmod +x "${APP_DIR}/lib/cryptomator/AppRun" 2>/dev/null || true
+ln -sf "${APP_ROOT}/sbin/cryptomator-api" /usr/local/bin/cryptomator-api
+chmod +x "${APP_ROOT}/sbin/cryptomator-api"
+mkdir -p /mnt/cryptomator
 
 echo "Cryptomator installed successfully"

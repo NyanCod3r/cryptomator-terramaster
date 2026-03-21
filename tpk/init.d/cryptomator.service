@@ -1,0 +1,12 @@
+[Unit]
+Description=Cryptomator Vault Service
+Documentation=https://github.com/NyanCod3r/cryptomator-terramaster
+After=TOSDaemon.service
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/cryptomator-api -D
+Restart=on-failure
+
+[Install]
+WantedBy=tnas-system.target

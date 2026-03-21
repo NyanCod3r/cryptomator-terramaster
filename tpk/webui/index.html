@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cryptomator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f6fa;color:#2d3436}
+.header{background:#49a078;color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between}
+.header h1{font-size:20px;font-weight:600;display:flex;align-items:center;gap:10px}
+.header h1 svg{width:28px;height:28px}
+.btn{padding:8px 16px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500;transition:opacity .2s}
+.btn:hover{opacity:.85}
+.btn-primary{background:#49a078;color:#fff}
+.btn-danger{background:#e74c3c;color:#fff}
+.btn-secondary{background:#636e72;color:#fff}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.content{padding:24px;max-width:900px;margin:0 auto}
+.empty{text-align:center;padding:60px 20px;color:#636e72}
+.empty svg{width:64px;height:64px;margin-bottom:16px;opacity:.4}
+.empty p{font-size:15px;margin-bottom:20px}
+.vault-card{background:#fff;border-radius:10px;padding:20px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08);display:flex;align-items:center;gap:16px}
+.vault-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.vault-icon.locked{background:#ffeaa7}
+.vault-icon.unlocked{background:#55efc4}
+.vault-icon svg{width:24px;height:24px}
+.vault-info{flex:1;min-width:0}
+.vault-info h3{font-size:15px;font-weight:600;margin-bottom:4px}
+.vault-info p{font-size:13px;color:#636e72;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vault-info .mount{color:#49a078;font-weight:500}
+.vault-actions{display:flex;gap:8px;flex-shrink:0}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.status-dot.locked{background:#fdcb6e}
+.status-dot.unlocked{background:#00b894}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal{background:#fff;border-radius:12px;padding:28px;width:420px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.15)}
+.modal h2{font-size:18px;margin-bottom:20px}
+.form-group{margin-bottom:16px}
+.form-group label{display:block;font-size:13px;font-weight:500;margin-bottom:6px;color:#2d3436}
+.form-group input{width:100%;padding:10px 12px;border:1px solid #dfe6e9;border-radius:6px;font-size:14px;outline:none;transition:border-color .2s}
+.form-group input:focus{border-color:#49a078}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+.error-msg{background:#ffedf0;color:#e74c3c;padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:14px;display:none}
+.status-bar{font-size:12px;color:#636e72;padding:8px 24px;border-top:1px solid #dfe6e9;text-align:right}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    Cryptomator
+  </h1>
+  <button class="btn btn-primary" onclick="showAddVault()">+ Add Vault</button>
+</div>
+
+<div class="content" id="vault-list"></div>
+
+<div class="status-bar" id="status-bar">Connecting...</div>
+
+<div class="modal-overlay" id="add-modal">
+  <div class="modal">
+    <h2>Add Vault</h2>
+    <div class="error-msg" id="add-error"></div>
+    <div class="form-group">
+      <label>Vault Path</label>
+      <input type="text" id="add-path" placeholder="/Volume1/data/MyVault">
+    </div>
+    <div class="form-group">
+      <label>Name (optional)</label>
+      <input type="text" id="add-name" placeholder="My Vault">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('add-modal')">Cancel</button>
+      <button class="btn btn-primary" id="add-submit" onclick="addVault()">Add</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="unlock-modal">
+  <div class="modal">
+    <h2>Unlock Vault</h2>
+    <div class="error-msg" id="unlock-error"></div>
+    <p id="unlock-vault-name" style="font-size:14px;color:#636e72;margin-bottom:16px"></p>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" id="unlock-password" placeholder="Enter vault password" onkeydown="if(event.key==='Enter')unlockVault()">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal('unlock-modal')">Cancel</button>
+      <button class="btn btn-primary" id="unlock-submit" onclick="unlockVault()">Unlock</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var BASE="/v2/proxy/cryptomator";
+var unlockVaultId=null;
+
+function getCsrf(){
+  var m=document.cookie.match(/(?:^|; )X-Csrf-Token=([^;]*)/);
+  return m?decodeURIComponent(m[1]):"";
+}
+
+function api(method,path,body){
+  var opts={method:method,headers:{"Content-Type":"application/json","X-Csrf-Token":getCsrf()}};
+  if(body)opts.body=JSON.stringify(body);
+  return fetch(BASE+path,opts).then(function(r){return r.json()}).then(function(d){
+    if(!d.code)throw new Error(d.msg||d.code_msg||"Unknown error");
+    return d.data;
+  });
+}
+
+function showError(id,msg){
+  var el=document.getElementById(id);
+  el.textContent=msg;
+  el.style.display="block";
+}
+
+function clearError(id){
+  var el=document.getElementById(id);
+  el.style.display="none";
+}
+
+function showAddVault(){
+  clearError("add-error");
+  document.getElementById("add-path").value="";
+  document.getElementById("add-name").value="";
+  document.getElementById("add-modal").classList.add("active");
+  document.getElementById("add-path").focus();
+}
+
+function closeModal(id){
+  document.getElementById(id).classList.remove("active");
+}
+
+function addVault(){
+  clearError("add-error");
+  var path=document.getElementById("add-path").value.trim();
+  var name=document.getElementById("add-name").value.trim();
+  if(!path)return showError("add-error","Vault path is required");
+  var btn=document.getElementById("add-submit");
+  btn.disabled=true;
+  api("POST","/vaults",{path:path,name:name}).then(function(){
+    closeModal("add-modal");
+    loadVaults();
+  }).catch(function(e){
+    showError("add-error",e.message);
+  }).finally(function(){btn.disabled=false});
+}
+
+function showUnlock(id,name){
+  unlockVaultId=id;
+  clearError("unlock-error");
+  document.getElementById("unlock-password").value="";
+  document.getElementById("unlock-vault-name").textContent=name;
+  document.getElementById("unlock-modal").classList.add("active");
+  document.getElementById("unlock-password").focus();
+}
+
+function unlockVault(){
+  clearError("unlock-error");
+  var pw=document.getElementById("unlock-password").value;
+  if(!pw)return showError("unlock-error","Password is required");
+  var btn=document.getElementById("unlock-submit");
+  btn.disabled=true;
+  btn.textContent="Unlocking...";
+  api("POST","/vaults/"+unlockVaultId+"/unlock",{password:pw}).then(function(){
+    closeModal("unlock-modal");
+    loadVaults();
+  }).catch(function(e){
+    showError("unlock-error",e.message);
+  }).finally(function(){btn.disabled=false;btn.textContent="Unlock"});
+}
+
+function lockVault(id){
+  api("POST","/vaults/"+id+"/lock").then(loadVaults).catch(function(e){alert(e.message)});
+}
+
+function removeVault(id,name){
+  if(!confirm("Remove vault \""+name+"\"? This only removes it from the list, vault data is not deleted."))return;
+  api("DELETE","/vaults/"+id).then(loadVaults).catch(function(e){alert(e.message)});
+}
+
+function renderVaults(vaults){
+  var c=document.getElementById("vault-list");
+  if(!vaults||!vaults.length){
+    c.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><p>No vaults added yet</p><button class="btn btn-primary" onclick="showAddVault()">Add Your First Vault</button></div>';
+    return;
+  }
+  var html="";
+  for(var i=0;i<vaults.length;i++){
+    var v=vaults[i];
+    var st=v.unlocked?"unlocked":"locked";
+    html+='<div class="vault-card">';
+    html+='<div class="vault-icon '+st+'">';
+    if(v.unlocked)html+='<svg viewBox="0 0 24 24" fill="none" stroke="#00b894" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>';
+    else html+='<svg viewBox="0 0 24 24" fill="none" stroke="#fdcb6e" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+    html+='</div>';
+    html+='<div class="vault-info"><h3><span class="status-dot '+st+'"></span>'+esc(v.name)+'</h3>';
+    html+='<p>'+esc(v.path)+'</p>';
+    if(v.unlocked)html+='<p class="mount">Mounted: '+esc(v.mount_point)+'</p>';
+    html+='</div>';
+    html+='<div class="vault-actions">';
+    if(v.unlocked)html+='<button class="btn btn-secondary btn-sm" onclick="lockVault(\''+v.id+'\')">Lock</button>';
+    else html+='<button class="btn btn-primary btn-sm" onclick="showUnlock(\''+v.id+'\',\''+esc(v.name)+'\')">Unlock</button>';
+    html+='<button class="btn btn-danger btn-sm" onclick="removeVault(\''+v.id+'\',\''+esc(v.name)+'\')">Remove</button>';
+    html+='</div></div>';
+  }
+  c.innerHTML=html;
+}
+
+function esc(s){
+  var d=document.createElement("div");
+  d.textContent=s||"";
+  return d.innerHTML;
+}
+
+function loadVaults(){
+  api("GET","/vaults").then(renderVaults).catch(function(e){
+    document.getElementById("vault-list").innerHTML='<div class="empty"><p>Error: '+esc(e.message)+'</p></div>';
+  });
+}
+
+function checkStatus(){
+  api("GET","/status").then(function(d){
+    var bar=document.getElementById("status-bar");
+    bar.textContent="CLI: "+d.version+(d.cli_available?" (ready)":" (not found)");
+  }).catch(function(){
+    document.getElementById("status-bar").textContent="Backend not reachable";
+  });
+}
+
+loadVaults();
+checkStatus();
+setInterval(loadVaults,10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "cryptomator_vaults",
+    "icon": "/images/cryptomator/vaults.svg",
+    "name": ["cryptomator", "Vaults"],
+    "type": "iframe",
+    "path": "/",
+    "is_delete": true,
+    "role": ["root", "default"]
+  }
+]

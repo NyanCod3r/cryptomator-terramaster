@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  UPSTREAM_REPO: cryptomator/cryptomator
+  UPSTREAM_REPO: cryptomator/cli
   APP_NAME: Cryptomator
   APP_ID: cryptomator
   PKG_REVISION: "0"
@@ -96,23 +96,23 @@ jobs:
           - arch: x86_64
             tos_label: TOS7_TOS6
             app_dir_prefix: x64_tos6_apps
-            appimage_suffix: x86_64
+            cli_arch: linux-x64
           - arch: aarch64
             tos_label: TOS6
             app_dir_prefix: arm_tos6_apps
-            appimage_suffix: aarch64
+            cli_arch: linux-aarch64
     env:
       VERSION: ${{ needs.check-release.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq file squashfs-tools xz-utils
+        run: sudo apt-get update && sudo apt-get install -y jq xz-utils unzip
 
       - name: Clone TOS app-pkg-tools
         run: git clone --depth 1 https://github.com/TerraMasterOfficial/app-pkg-tools.git /tmp/app-pkg-tools
 
-      - name: Download Cryptomator AppImage
+      - name: Download Cryptomator CLI
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -121,46 +121,38 @@ jobs:
             "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${VERSION}")
 
           DOWNLOAD_URL=$(echo "$RELEASE_JSON" \
-            | jq -r ".assets[] | select(.name | test(\"cryptomator-.*${{ matrix.appimage_suffix }}.*\\\\.AppImage$\")) | .browser_download_url" \
+            | jq -r ".assets[] | select(.name | test(\"cryptomator-cli-.*${{ matrix.cli_arch }}.*\\\\.zip$\")) | .browser_download_url" \
             | head -1)
 
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-            echo "::error::No AppImage found for ${{ matrix.arch }} in release ${VERSION}"
+            echo "::error::No CLI zip found for ${{ matrix.cli_arch }} in release ${VERSION}"
             echo "Available assets:"
             echo "$RELEASE_JSON" | jq -r '.assets[].name'
             exit 1
           fi
 
           echo "Downloading: $DOWNLOAD_URL"
-          curl -sSfL -o /tmp/cryptomator.AppImage "$DOWNLOAD_URL"
-          chmod +x /tmp/cryptomator.AppImage
-
-      - name: Extract AppImage
-        run: |
-          cd /tmp
-          if ! ./cryptomator.AppImage --appimage-extract 2>/dev/null; then
-            echo "Native extraction failed, using unsquashfs for cross-arch"
-            OFFSET=$(grep -Poab 'hsqs' cryptomator.AppImage | head -1 | cut -d: -f1)
-            if [ -z "$OFFSET" ]; then
-              echo "::error::Cannot find squashfs in AppImage"
-              exit 1
-            fi
-            unsquashfs -offset "$OFFSET" -dest squashfs-root cryptomator.AppImage
-          fi
-          echo "Extracted contents:"
-          ls -la squashfs-root/
+          curl -sSfL -o /tmp/cryptomator-cli.zip "$DOWNLOAD_URL"
+          unzip /tmp/cryptomator-cli.zip -d /tmp/
+          echo "Extracted:"
+          ls -la /tmp/cryptomator-cli/
 
       - name: Prepare TOS package structure
         run: |
           PKG_DIR="/tmp/app-pkg-tools/${{ matrix.app_dir_prefix }}/${{ env.APP_NAME }}/output"
-          mkdir -p "${PKG_DIR}/bin"
-          mkdir -p "${PKG_DIR}/lib/cryptomator"
+          mkdir -p "${PKG_DIR}/sbin"
+          mkdir -p "${PKG_DIR}/lib"
           mkdir -p "${PKG_DIR}/images/icons"
+          mkdir -p "${PKG_DIR}/images/cryptomator"
           mkdir -p "${PKG_DIR}/init.d"
           mkdir -p "${PKG_DIR}/scripts"
           mkdir -p "${PKG_DIR}/config"
+          mkdir -p "${PKG_DIR}/modules"
 
-          cp -a /tmp/squashfs-root/* "${PKG_DIR}/lib/cryptomator/"
+          cp -a /tmp/cryptomator-cli "${PKG_DIR}/lib/cryptomator-cli"
+
+          cp tpk/sbin/cryptomator-api "${PKG_DIR}/sbin/"
+          chmod +x "${PKG_DIR}/sbin/cryptomator-api"
 
           TPK_VERSION="${VERSION}.${{ env.PKG_REVISION }}"
 
@@ -173,17 +165,16 @@ jobs:
           sed -i "s/^version = .*/version = ${VERSION}/" tpk/cryptomator.lang
           cp tpk/cryptomator.lang "${PKG_DIR}/"
 
-          cp tpk/init.d/service "${PKG_DIR}/init.d/"
-          chmod +x "${PKG_DIR}/init.d/service"
+          cp tpk/init.d/cryptomator.service "${PKG_DIR}/init.d/"
           cp tpk/scripts/install.sh "${PKG_DIR}/scripts/"
           cp tpk/scripts/remove.sh "${PKG_DIR}/scripts/"
           chmod +x "${PKG_DIR}/scripts/"*.sh
 
           cp tpk/images/icons/cryptomator.svg "${PKG_DIR}/images/icons/cryptomator.svg"
+          cp tpk/images/cryptomator/vaults.svg "${PKG_DIR}/images/cryptomator/vaults.svg"
+          cp tpk/modules/index.json "${PKG_DIR}/modules/index.json"
 
-          printf '#!/bin/sh\nINSTALL_DIR="/usr/local/app/cryptomator"\nexport LD_LIBRARY_PATH="${INSTALL_DIR}/lib/cryptomator/usr/lib:${LD_LIBRARY_PATH}"\nexec "${INSTALL_DIR}/lib/cryptomator/AppRun" "$@"\n' \
-            > "${PKG_DIR}/bin/cryptomator"
-          chmod +x "${PKG_DIR}/bin/cryptomator"
+          tar -Jcf "${PKG_DIR}/webui.bz2" -C tpk/webui .
 
           echo "Package structure:"
           find "${PKG_DIR}" -maxdepth 3 -type f | sort
@@ -288,7 +279,9 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: "Cryptomator ${{ env.VERSION }} for TerraMaster TOS"
           body: |
-            Automated TerraMaster TOS package build for [Cryptomator ${{ env.VERSION }}](https://github.com/${{ env.UPSTREAM_REPO }}/releases/tag/${{ env.VERSION }}).
+            Automated TerraMaster TOS package build for [Cryptomator CLI ${{ env.VERSION }}](https://github.com/${{ env.UPSTREAM_REPO }}/releases/tag/${{ env.VERSION }}).
+
+            Provides a web-based vault management UI for TerraMaster NAS, powered by cryptomator-cli.
 
             ## Packages
             | File | Architecture | TOS Compatibility |
@@ -303,7 +296,9 @@ jobs:
             4. Select the downloaded `.tpk` file and install
 
             ## Notes
-            - Built from upstream Cryptomator release artifacts (AppImage)
+            - Built from upstream [cryptomator/cli](https://github.com/cryptomator/cli) release artifacts
+            - Web UI for vault management (add, unlock, lock, remove vaults)
+            - Vaults are mounted via FUSE at `/mnt/cryptomator/`
             - Packaged using [TerraMaster app-pkg-tools](https://github.com/TerraMasterOfficial/app-pkg-tools)
           files: dist/*.tpk
           draft: false
