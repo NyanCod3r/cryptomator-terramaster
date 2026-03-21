@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-UPSTREAM_REPO="cryptomator/cli"
+UPSTREAM_REPO="cryptomator/cryptomator"
+CLI_REPO="cryptomator/cli"
 APP_NAME="Cryptomator"
 APP_ID="cryptomator"
 PKG_REVISION="${PKG_REVISION:-0}"
@@ -13,7 +14,7 @@ usage() {
     echo "Usage: $0 <version> <arch>"
     echo ""
     echo "Arguments:"
-    echo "  version   Upstream cryptomator-cli version (e.g. 0.6.2)"
+    echo "  version   Cryptomator version for branding (e.g. 1.19.2)"
     echo "  arch      Target architecture: x86_64 or aarch64"
     echo ""
     echo "Environment variables:"
@@ -21,8 +22,8 @@ usage() {
     echo "  GH_TOKEN       GitHub token for API requests (optional)"
     echo ""
     echo "Examples:"
-    echo "  $0 0.6.2 x86_64"
-    echo "  PKG_REVISION=1 $0 0.6.2 aarch64"
+    echo "  $0 1.19.2 x86_64"
+    echo "  PKG_REVISION=1 $0 1.19.2 aarch64"
     exit 1
 }
 
@@ -64,17 +65,30 @@ if [ ! -d "${BUILD_DIR}/app-pkg-tools" ]; then
     git clone --depth 1 https://github.com/TerraMasterOfficial/app-pkg-tools.git "${BUILD_DIR}/app-pkg-tools"
 fi
 
-echo ">>> Downloading Cryptomator CLI for ${ARCH}"
+echo ">>> Fetching latest cryptomator/cli release"
+CLI_TAG=$(curl -sf \
+    ${GH_TOKEN:+-H "Authorization: token ${GH_TOKEN}"} \
+    "https://api.github.com/repos/${CLI_REPO}/releases/latest" \
+    | jq -r '.tag_name')
+
+if [ -z "$CLI_TAG" ] || [ "$CLI_TAG" = "null" ]; then
+    echo "Error: Failed to fetch latest cryptomator/cli release"
+    exit 1
+fi
+
+echo "Cryptomator version: ${VERSION}"
+echo "CLI engine version: ${CLI_TAG}"
+
 RELEASE_JSON=$(curl -sf \
     ${GH_TOKEN:+-H "Authorization: token ${GH_TOKEN}"} \
-    "https://api.github.com/repos/${UPSTREAM_REPO}/releases/tags/${VERSION}")
+    "https://api.github.com/repos/${CLI_REPO}/releases/tags/${CLI_TAG}")
 
 DOWNLOAD_URL=$(echo "$RELEASE_JSON" \
     | jq -r ".assets[] | select(.name | test(\"cryptomator-cli-.*${CLI_ARCH}.*\\\\.zip$\")) | .browser_download_url" \
     | head -1)
 
 if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-    echo "Error: No CLI zip found for ${CLI_ARCH} in release ${VERSION}"
+    echo "Error: No CLI zip found for ${CLI_ARCH} in CLI release ${CLI_TAG}"
     echo "Available assets:"
     echo "$RELEASE_JSON" | jq -r '.assets[].name'
     exit 1

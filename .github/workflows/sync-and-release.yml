@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Force build for a specific cryptomator/cli version (e.g. 0.6.2)'
+        description: 'Force build for a specific Cryptomator version (e.g. 1.19.2)'
         required: false
         type: string
 
@@ -14,7 +14,8 @@ permissions:
   contents: write
 
 env:
-  UPSTREAM_REPO: cryptomator/cli
+  UPSTREAM_REPO: cryptomator/cryptomator
+  CLI_REPO: cryptomator/cli
   APP_NAME: Cryptomator
   APP_ID: cryptomator
   PKG_REVISION: "0"
@@ -97,23 +98,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          RELEASE_API="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${VERSION}"
-          echo "Fetching release: $RELEASE_API"
-          RELEASE_JSON=$(curl -sf \
+          CLI_TAG=$(curl -sf \
             -H "Authorization: token $GH_TOKEN" \
-            "$RELEASE_API" || true)
+            "https://api.github.com/repos/${{ env.CLI_REPO }}/releases/latest" \
+            | jq -r '.tag_name')
 
-          if [ -z "$RELEASE_JSON" ] || [ "$(echo "$RELEASE_JSON" | jq -r '.message // empty')" = "Not Found" ]; then
-            echo "::error::Release ${VERSION} not found in ${{ env.UPSTREAM_REPO }}. Valid versions: https://github.com/${{ env.UPSTREAM_REPO }}/releases"
+          if [ -z "$CLI_TAG" ] || [ "$CLI_TAG" = "null" ]; then
+            echo "::error::Failed to fetch latest cryptomator/cli release"
             exit 1
           fi
+
+          echo "Cryptomator version: ${VERSION}"
+          echo "CLI engine version: ${CLI_TAG}"
+
+          RELEASE_JSON=$(curl -sf \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ env.CLI_REPO }}/releases/tags/${CLI_TAG}")
 
           DOWNLOAD_URL=$(echo "$RELEASE_JSON" \
             | jq -r ".assets[] | select(.name | test(\"cryptomator-cli-.*${{ matrix.cli_arch }}.*\\\\.zip$\")) | .browser_download_url" \
             | head -1)
 
           if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" = "null" ]; then
-            echo "::error::No CLI zip found for ${{ matrix.cli_arch }} in release ${VERSION}"
+            echo "::error::No CLI zip found for ${{ matrix.cli_arch }} in CLI release ${CLI_TAG}"
             echo "Available assets:"
             echo "$RELEASE_JSON" | jq -r '.assets[].name'
             exit 1
@@ -267,9 +274,9 @@ jobs:
           tag_name: ${{ env.VERSION }}
           name: "Cryptomator ${{ env.VERSION }} for TerraMaster TOS"
           body: |
-            Automated TerraMaster TOS package build for [Cryptomator CLI ${{ env.VERSION }}](https://github.com/${{ env.UPSTREAM_REPO }}/releases/tag/${{ env.VERSION }}).
+            Automated TerraMaster TOS package build for [Cryptomator ${{ env.VERSION }}](https://github.com/${{ env.UPSTREAM_REPO }}/releases/tag/${{ env.VERSION }}).
 
-            Provides a web-based vault management UI for TerraMaster NAS, powered by cryptomator-cli.
+            Provides a web-based vault management UI for TerraMaster NAS.
 
             ## Packages
             | File | Architecture | TOS Compatibility |
@@ -284,9 +291,9 @@ jobs:
             4. Select the downloaded `.tpk` file and install
 
             ## Notes
-            - Built from upstream [cryptomator/cli](https://github.com/cryptomator/cli) release artifacts
             - Web UI for vault management (add, unlock, lock, remove vaults)
             - Vaults are mounted via FUSE at `/mnt/cryptomator/`
+            - Engine: [cryptomator/cli](https://github.com/cryptomator/cli) (latest)
             - Packaged using [TerraMaster app-pkg-tools](https://github.com/TerraMasterOfficial/app-pkg-tools)
           files: dist/*.tpk
           draft: false
