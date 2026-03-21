@@ -20,25 +20,6 @@ env:
   PKG_REVISION: "0"
 
 jobs:
-  sync-fork:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Sync fork with upstream
-        run: |
-          git remote add upstream "https://github.com/${{ env.UPSTREAM_REPO }}.git" 2>/dev/null || true
-          git fetch upstream --tags --force
-          git push origin --tags --force
-
   check-release:
     runs-on: ubuntu-latest
     outputs:
