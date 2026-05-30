@@ -122,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
             if not p.is_dir():
                 return self._reply(make_resp(False, msg="Path does not exist"))
             if not (p / "vault.cryptomator").exists() and not (p / "masterkey.cryptomator").exists():
-                return self._reply(make_resp(False, msg="Not a valid Cryptomator vault"))
+                return self._reply(make_resp(False, msg="No Cryptomator vault found at this path. Create one with the Cryptomator desktop app first."))
             vaults = load_vaults()
             if any(v["path"] == str(p) for v in vaults):
                 return self._reply(make_resp(False, msg="Vault already added"))
@@ -139,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(make_resp(True, vault))
 
         elif method == "POST" and "/unlock" in rest:
-            vid = rest.split("/")[0]
+            vid = rest.split("/")[1]
             body = self._body()
             password = body.get("password", "")
             if not password:
@@ -183,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(make_resp(False, msg=str(e)))
 
         elif method == "POST" and "/lock" in rest:
-            vid = rest.split("/")[0]
+            vid = rest.split("/")[1]
             lock_vault(vid)
             self._reply(make_resp(True, {"unlocked": False}))
 
@@ -254,6 +254,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
 
+    os.makedirs(os.path.dirname(SOCK_PATH), exist_ok=True)
     server = UnixHTTPServer(SOCK_PATH, Handler)
     server.serve_forever()
 

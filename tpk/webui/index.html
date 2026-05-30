@@ -53,7 +53,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
     Cryptomator
   </h1>
-  <button class="btn btn-primary" onclick="showAddVault()">+ Add Vault</button>
+  <button class="btn btn-primary" onclick="showAddVault()">+ Import Vault</button>
 </div>
 
 <div class="content" id="vault-list"></div>
@@ -62,7 +62,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 
 <div class="modal-overlay" id="add-modal">
   <div class="modal">
-    <h2>Add Vault</h2>
+    <h2>Import Existing Vault</h2>
+    <p style="font-size:13px;color:#636e72;margin-bottom:16px">Enter the path to a Cryptomator vault already on your NAS. To create a new vault, use the Cryptomator app on your desktop first, then store the vault folder here.</p>
     <div class="error-msg" id="add-error"></div>
     <div class="form-group">
       <label>Vault Path</label>
@@ -74,7 +75,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" onclick="closeModal('add-modal')">Cancel</button>
-      <button class="btn btn-primary" id="add-submit" onclick="addVault()">Add</button>
+      <button class="btn btn-primary" id="add-submit" onclick="addVault()">Import</button>
     </div>
   </div>
 </div>
@@ -187,7 +188,7 @@ function removeVault(id,name){
 function renderVaults(vaults){
   var c=document.getElementById("vault-list");
   if(!vaults||!vaults.length){
-    c.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><p>No vaults added yet</p><button class="btn btn-primary" onclick="showAddVault()">Add Your First Vault</button></div>';
+    c.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><p>No vaults imported yet</p><p style="font-size:12px;color:#b2bec3;margin-bottom:16px">Create a vault with the Cryptomator desktop app, place the folder on your NAS, then import it here.</p><button class="btn btn-primary" onclick="showAddVault()">Import Your First Vault</button></div>';
     return;
   }
   var html="";
