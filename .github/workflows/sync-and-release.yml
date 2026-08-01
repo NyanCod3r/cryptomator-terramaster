@@ -1,4 +1,4 @@
-name: Sync Upstream and Release TPK
+name: Build and Release TNAS TPK
 
 on:
   schedule:
@@ -18,7 +18,7 @@ env:
   CLI_REPO: cryptomator/cli
   APP_NAME: Cryptomator
   APP_ID: cryptomator
-  PKG_REVISION: "0"
+  PKG_REVISION: "1"
 
 jobs:
   check-release:
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y jq xz-utils unzip
+        run: sudo apt-get update && sudo apt-get install -y gettext-base jq xz-utils unzip
 
       - name: Clone TOS app-pkg-tools
         run: git clone --depth 1 https://github.com/TerraMasterOfficial/app-pkg-tools.git /tmp/app-pkg-tools
@@ -281,8 +281,8 @@ jobs:
             ## Packages
             | File | Architecture | TOS Compatibility |
             |------|-------------|-------------------|
-            | `Cryptomator TOS7_TOS6 ${{ env.VERSION }}.0 x86_64.tpk` | x86_64 (Intel/AMD) | TOS 6 + TOS 7 |
-            | `Cryptomator TOS6 ${{ env.VERSION }}.0 aarch64.tpk` | aarch64 (ARM) | TOS 6 |
+            | `Cryptomator TOS7_TOS6 ${{ env.VERSION }}.${{ env.PKG_REVISION }} x86_64.tpk` | x86_64 (Intel/AMD) | TOS 6 + TOS 7 |
+            | `Cryptomator TOS6 ${{ env.VERSION }}.${{ env.PKG_REVISION }} aarch64.tpk` | aarch64 (ARM) | TOS 6 |
 
             ## Installation
             1. Download the `.tpk` matching your NAS architecture

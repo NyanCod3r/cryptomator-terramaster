@@ -9,6 +9,7 @@ ln -sf "${APP_ROOT}/sbin/cryptomator-api" /usr/local/bin/cryptomator-api
 chmod +x "${APP_ROOT}/sbin/cryptomator-api"
 mkdir -p /mnt/cryptomator
 mkdir -p /var/api
+install -d -m 0750 /var/lib/cryptomator
 
 cp "${APP_ROOT}/init.d/cryptomator.service" /lib/systemd/system/cryptomator.service
 systemctl daemon-reload

@@ -99,6 +99,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <script>
 var BASE="/v2/proxy/cryptomator";
 var unlockVaultId=null;
+var renderedVaults=[];
 
 function getCsrf(){
   var m=document.cookie.match(/(?:^|; )X-Csrf-Token=([^;]*)/);
@@ -161,6 +162,11 @@ function showUnlock(id,name){
   document.getElementById("unlock-password").focus();
 }
 
+function showUnlockAt(index){
+  var vault=renderedVaults[index];
+  if(vault)showUnlock(String(vault.id),vault.name);
+}
+
 function unlockVault(){
   clearError("unlock-error");
   var pw=document.getElementById("unlock-password").value;
@@ -180,12 +186,23 @@ function lockVault(id){
   api("POST","/vaults/"+id+"/lock").then(loadVaults).catch(function(e){alert(e.message)});
 }
 
+function lockVaultAt(index){
+  var vault=renderedVaults[index];
+  if(vault)lockVault(String(vault.id));
+}
+
 function removeVault(id,name){
   if(!confirm("Remove vault \""+name+"\"? This only removes it from the list, vault data is not deleted."))return;
   api("DELETE","/vaults/"+id).then(loadVaults).catch(function(e){alert(e.message)});
 }
 
+function removeVaultAt(index){
+  var vault=renderedVaults[index];
+  if(vault)removeVault(String(vault.id),vault.name);
+}
+
 function renderVaults(vaults){
+  renderedVaults=vaults||[];
   var c=document.getElementById("vault-list");
   if(!vaults||!vaults.length){
     c.innerHTML='<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><p>No vaults imported yet</p><p style="font-size:12px;color:#b2bec3;margin-bottom:16px">Create a vault with the Cryptomator desktop app, place the folder on your NAS, then import it here.</p><button class="btn btn-primary" onclick="showAddVault()">Import Your First Vault</button></div>';
@@ -205,9 +222,9 @@ function renderVaults(vaults){
     if(v.unlocked)html+='<p class="mount">Mounted: '+esc(v.mount_point)+'</p>';
     html+='</div>';
     html+='<div class="vault-actions">';
-    if(v.unlocked)html+='<button class="btn btn-secondary btn-sm" onclick="lockVault(\''+v.id+'\')">Lock</button>';
-    else html+='<button class="btn btn-primary btn-sm" onclick="showUnlock(\''+v.id+'\',\''+esc(v.name)+'\')">Unlock</button>';
-    html+='<button class="btn btn-danger btn-sm" onclick="removeVault(\''+v.id+'\',\''+esc(v.name)+'\')">Remove</button>';
+    if(v.unlocked)html+='<button class="btn btn-secondary btn-sm" onclick="lockVaultAt('+i+')">Lock</button>';
+    else html+='<button class="btn btn-primary btn-sm" onclick="showUnlockAt('+i+')">Unlock</button>';
+    html+='<button class="btn btn-danger btn-sm" onclick="removeVaultAt('+i+')">Remove</button>';
     html+='</div></div>';
   }
   c.innerHTML=html;

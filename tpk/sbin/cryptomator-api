@@ -10,12 +10,18 @@ import sys
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-CLI_BIN = APP_ROOT / "lib" / "cryptomator-cli" / "bin" / "cryptomator-cli"
-CONFIG_DIR = APP_ROOT / "config"
+CLI_CANDIDATES = (
+    APP_ROOT / "lib" / "cryptomator-cli" / "bin" / "cryptomator-cli",
+    APP_ROOT / "lib" / "cryptomator-cli" / "cryptomator-cli",
+)
+CLI_BIN = next((path for path in CLI_CANDIDATES if path.is_file()), CLI_CANDIDATES[0])
+CONFIG_DIR = Path(os.environ.get("CRYPTOMATOR_CONFIG_DIR", "/var/lib/cryptomator"))
 VAULTS_FILE = CONFIG_DIR / "vaults.json"
+LEGACY_VAULTS_FILE = APP_ROOT / "config" / "vaults.json"
 MOUNT_BASE = Path("/mnt/cryptomator")
 SOCK_PATH = "/var/api/cryptomator.sock"
 LOG_FILE = "/var/log/cryptomator-api.log"
@@ -24,18 +30,43 @@ vault_procs = {}
 
 
 def load_vaults():
-    if VAULTS_FILE.exists():
-        with open(VAULTS_FILE) as f:
-            return json.load(f)
-    return []
+    source = VAULTS_FILE if VAULTS_FILE.exists() else LEGACY_VAULTS_FILE
+    if not source.exists():
+        return []
+
+    with open(source, encoding="utf-8") as f:
+        vaults = json.load(f)
+    if not isinstance(vaults, list):
+        raise ValueError("Vault configuration must contain a JSON array")
+
+    changed = source == LEGACY_VAULTS_FILE
+    for vault in vaults:
+        normalized_id = str(vault["id"])
+        if vault["id"] != normalized_id:
+            vault["id"] = normalized_id
+            changed = True
+    if changed:
+        save_vaults(vaults)
+    return vaults
 
 
 def save_vaults(vaults):
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     tmp = str(VAULTS_FILE) + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(vaults, f, indent=2)
     os.replace(tmp, str(VAULTS_FILE))
+
+
+def find_vault(vaults, vid):
+    return next((vault for vault in vaults if str(vault["id"]) == str(vid)), None)
+
+
+def vault_action_id(rest, action):
+    parts = rest.split("/")
+    if len(parts) == 3 and parts[0] == "vaults" and parts[1] and parts[2] == action:
+        return parts[1]
+    return None
 
 
 def make_resp(code=True, data=None, msg=""):
@@ -51,10 +82,11 @@ def make_resp(code=True, data=None, msg=""):
 
 
 def lock_vault(vid):
+    vid = str(vid)
     if vid in vault_procs:
         proc = vault_procs[vid]
         if proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
+            proc.send_signal(signal.SIGINT)
             try:
                 proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
@@ -71,7 +103,7 @@ def get_cli_version():
             capture_output=True, text=True, timeout=10
         )
         return r.stdout.strip() or r.stderr.strip() or "unknown"
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return "unknown"
 
 
@@ -98,6 +130,9 @@ class Handler(BaseHTTPRequestHandler):
         self._reply(make_resp(False, msg="not found"), 404)
 
     def _handle(self, method, rest):
+        unlock_vid = vault_action_id(rest, "unlock")
+        lock_vid = vault_action_id(rest, "lock")
+
         if method == "GET" and rest in ("", "status"):
             self._reply(make_resp(True, {
                 "version": get_cli_version(),
@@ -118,10 +153,13 @@ class Handler(BaseHTTPRequestHandler):
             name = body.get("name", "").strip()
             if not vault_path:
                 return self._reply(make_resp(False, msg="Vault path is required"))
-            p = Path(vault_path)
-            if not p.is_dir():
+            try:
+                p = Path(vault_path).expanduser().resolve(strict=True)
+            except (FileNotFoundError, OSError):
                 return self._reply(make_resp(False, msg="Path does not exist"))
-            if not (p / "vault.cryptomator").exists() and not (p / "masterkey.cryptomator").exists():
+            if not p.is_dir():
+                return self._reply(make_resp(False, msg="Path is not a directory"))
+            if not (p / "vault.cryptomator").is_file() and not (p / "masterkey.cryptomator").is_file():
                 return self._reply(make_resp(False, msg="No Cryptomator vault found at this path. Create one with the Cryptomator desktop app first."))
             vaults = load_vaults()
             if any(v["path"] == str(p) for v in vaults):
@@ -138,8 +176,8 @@ class Handler(BaseHTTPRequestHandler):
             save_vaults(vaults)
             self._reply(make_resp(True, vault))
 
-        elif method == "POST" and "/unlock" in rest:
-            vid = rest.split("/")[1]
+        elif method == "POST" and unlock_vid is not None:
+            vid = unlock_vid
             body = self._body()
             password = body.get("password", "")
             if not password:
@@ -147,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             if not CLI_BIN.exists():
                 return self._reply(make_resp(False, msg="cryptomator-cli not found"))
             vaults = load_vaults()
-            vault = next((v for v in vaults if v["id"] == vid), None)
+            vault = find_vault(vaults, vid)
             if not vault:
                 return self._reply(make_resp(False, msg="Vault not found"))
             if vid in vault_procs and vault_procs[vid].poll() is None:
@@ -167,11 +205,13 @@ class Handler(BaseHTTPRequestHandler):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
+                assert proc.stdin is not None
                 proc.stdin.write(password.encode() + b"\n")
                 proc.stdin.flush()
                 proc.stdin.close()
                 time.sleep(3)
                 if proc.poll() is not None:
+                    assert proc.stderr is not None
                     err = proc.stderr.read().decode().strip()
                     return self._reply(make_resp(False, msg="Unlock failed: " + err))
                 vault_procs[vid] = proc
@@ -179,12 +219,11 @@ class Handler(BaseHTTPRequestHandler):
                     "unlocked": True,
                     "mount_point": str(mp),
                 }))
-            except Exception as e:
+            except (OSError, subprocess.SubprocessError) as e:
                 self._reply(make_resp(False, msg=str(e)))
 
-        elif method == "POST" and "/lock" in rest:
-            vid = rest.split("/")[1]
-            lock_vault(vid)
+        elif method == "POST" and lock_vid is not None:
+            lock_vault(lock_vid)
             self._reply(make_resp(True, {"unlocked": False}))
 
         elif method == "DELETE" and rest.startswith("vaults/"):
@@ -211,16 +250,21 @@ class Handler(BaseHTTPRequestHandler):
 class UnixHTTPServer(HTTPServer):
     address_family = socket.AF_UNIX
 
+    def __init__(self, server_address, request_handler_class):
+        super().__init__(server_address, request_handler_class)
+
     def server_bind(self):
-        if os.path.exists(self.server_address):
-            os.unlink(self.server_address)
+        socket_path = cast(str, self.server_address)
+        if os.path.exists(socket_path):
+            os.unlink(socket_path)
         self.socket.bind(self.server_address)
-        os.chmod(self.server_address, 0o666)
+        os.chmod(socket_path, 0o666)
 
     def server_close(self):
         super().server_close()
-        if os.path.exists(self.server_address):
-            os.unlink(self.server_address)
+        socket_path = cast(str, self.server_address)
+        if os.path.exists(socket_path):
+            os.unlink(socket_path)
 
 
 def main():

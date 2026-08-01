@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 The changelog starts with version 1.19.0.
 Changes to prior versions can be found on the [Github release page](https://github.com/cryptomator/cryptomator/releases).
 
+## Unreleased
+
+### Fixed
+* Normalize legacy numeric vault IDs so imported vaults can be unlocked without a false `Vault not found` response.
+* Match unlock and lock API routes exactly.
+* Send `SIGINT` to Cryptomator CLI for its documented graceful unmount behavior.
+* Handle vault names containing apostrophes without generating invalid inline JavaScript.
+
+### Changed
+* Store vault registrations under `/var/lib/cryptomator` and migrate the old app-local configuration on first use.
+* Replace inherited Cryptomator desktop workflows with TNAS package validation and release workflows.
+* Add backend regression tests for import, unlock, lock, deletion, migration, and route handling.
+
 
 ## [1.19.1](https://github.com/cryptomator/cryptomator/releases/1.19.1) - 2026-03-12
 

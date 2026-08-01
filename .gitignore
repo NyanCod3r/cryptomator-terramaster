@@ -11,3 +11,23 @@ pom.xml.versionsBackup
 
 # Java Crash Logs
 hs_err_pid*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Local package output
+build/
+dist/
+
+# kubeconfig files
+kubeconfig*
+KUBECONFIG*
+
+# environment variable files
+*.env
+*.env.*
+
+# local configuration files
+config.local.yaml
+config.local.yml
