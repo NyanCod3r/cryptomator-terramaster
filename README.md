@@ -79,7 +79,7 @@ python3 -m unittest discover -s tests -v
 
 The `Validate TNAS package` workflow runs these tests and checks shell syntax, package metadata, and the WebUI archive on pushes and pull requests that change TNAS files.
 
-The `Build and Release TNAS TPK` workflow checks for upstream releases and builds both CPU architectures when revision-specific assets are missing. A manual run can force any published upstream version.
+The `Build and Release TNAS TPK` workflow checks for upstream releases and builds both CPU architectures when revision-specific assets are missing. A manual run accepts either an upstream version such as `1.19.3` or its TPK version such as `1.19.3.1`.
 
 ## Repository structure
 

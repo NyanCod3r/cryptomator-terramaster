@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       force_version:
-        description: 'Force build for a specific Cryptomator version (e.g. 1.19.2)'
+        description: 'Upstream or TPK version (e.g. 1.19.3 or 1.19.3.1)'
         required: false
         type: string
 
@@ -39,20 +39,27 @@ jobs:
         run: |
           if [ -n "$FORCE_VERSION" ]; then
             echo "Forced version: $FORCE_VERSION"
-            UPSTREAM_RELEASE_URL="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${FORCE_VERSION}"
+            REQUESTED_VERSION="$FORCE_VERSION"
+            PACKAGE_SUFFIX=".${PKG_REVISION}"
+            UPSTREAM_CANDIDATE="${REQUESTED_VERSION%$PACKAGE_SUFFIX}"
+            if [ "$REQUESTED_VERSION" = "${UPSTREAM_CANDIDATE}${PACKAGE_SUFFIX}" ] && [[ "$UPSTREAM_CANDIDATE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              REQUESTED_VERSION="$UPSTREAM_CANDIDATE"
+              echo "Normalized TPK version to upstream tag: $REQUESTED_VERSION"
+            fi
+            UPSTREAM_RELEASE_URL="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${REQUESTED_VERSION}"
             FORCED_BUILD=true
           else
             UPSTREAM_RELEASE_URL="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest"
             FORCED_BUILD=false
           fi
 
-          UPSTREAM_TAG=$(curl -sf \
+          UPSTREAM_RELEASE=$(curl -sS \
             -H "Authorization: token $GH_TOKEN" \
-            "$UPSTREAM_RELEASE_URL" \
-            | jq -r '.tag_name')
+            "$UPSTREAM_RELEASE_URL")
+          UPSTREAM_TAG=$(jq -r '.tag_name // empty' <<< "$UPSTREAM_RELEASE")
 
-          if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
-            echo "::error::Failed to fetch upstream release tag"
+          if [ -z "$UPSTREAM_TAG" ]; then
+            echo "::error::No upstream Cryptomator release found for '${REQUESTED_VERSION:-latest}'. Use an upstream version such as 1.19.3 or its TPK version 1.19.3.${PKG_REVISION}."
             echo "new_release=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
