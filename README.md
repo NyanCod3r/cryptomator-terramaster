@@ -27,6 +27,14 @@ Each upstream Cryptomator release produces two files:
 
 The package version follows the desktop release for discoverability. The vault engine is the latest published Cryptomator CLI release.
 
+## Version tracking
+
+This is a packaging-only repository. It does not mirror the upstream JavaFX source because that application cannot run on a headless TNAS device and is not used to build the TPK.
+
+The release workflow queries the latest `cryptomator/cryptomator` release every 6 hours. The upstream tag remains the GitHub release tag, such as `1.19.3`. TPK filenames add the package revision, such as `1.19.3.1`.
+
+The workflow checks the release assets rather than comparing Git branches. It builds only when either architecture is missing for the configured package revision. Do not use GitHub's **Sync fork** button because it would restore unused desktop source and workflows.
+
 ## Installation
 
 1. Download the `.tpk` for the NAS CPU architecture from [Releases](../../releases).
@@ -50,13 +58,13 @@ command -v git jq curl unzip tar xz envsubst python3
 This command builds the x86_64 package from the repository root. Expected result: one `.tpk` file under `dist/`. Risk level: safe; it replaces the local `build/` directory.
 
 ```bash
-bash scripts/build-tpk.sh 1.19.1 x86_64
+bash scripts/build-tpk.sh 1.19.3 x86_64
 ```
 
 This command builds the aarch64 package from the repository root. Expected result: one `.tpk` file under `dist/`. Risk level: safe; it replaces the local `build/` directory.
 
 ```bash
-bash scripts/build-tpk.sh 1.19.1 aarch64
+bash scripts/build-tpk.sh 1.19.3 aarch64
 ```
 
 Set `GH_TOKEN` in the shell before building if unauthenticated GitHub API limits are a problem. Do not write the token into this repository.
@@ -71,7 +79,7 @@ python3 -m unittest discover -s tests -v
 
 The `Validate TNAS package` workflow runs these tests and checks shell syntax, package metadata, and the WebUI archive on pushes and pull requests that change TNAS files.
 
-The `Build and Release TNAS TPK` workflow checks for new upstream releases and builds both CPU architectures. A manual run can force a specific version.
+The `Build and Release TNAS TPK` workflow checks for upstream releases and builds both CPU architectures when revision-specific assets are missing. A manual run can force any published upstream version.
 
 ## Repository structure
 
@@ -107,4 +115,4 @@ The package contains:
 
 ## License
 
-The desktop source retains its [GPLv3 license](LICENSE.txt). Cryptomator CLI is distributed under its upstream AGPLv3 terms. The TNAS integration files in this repository must be distributed under compatible terms.
+The TNAS integration files use the [GPLv3 license](LICENSE.txt). Cryptomator CLI is distributed under its upstream AGPLv3 terms and includes its license in the downloaded application image.

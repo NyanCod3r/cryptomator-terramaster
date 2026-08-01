@@ -41,8 +41,8 @@ jobs:
           bash -n tpk/scripts/remove.sh
       - name: Validate package metadata
         run: |
-          TPK_VERSION=1.19.1.1 PLATFORM=x86_64 envsubst '${TPK_VERSION} ${PLATFORM}' < tpk/config.ini.template > /tmp/config.ini
-          jq -e '.id == "cryptomator" and .type == "iframe" and .platform == "x86_64"' /tmp/config.ini
+          TPK_VERSION=1.2.3.1 PLATFORM=x86_64 envsubst '${TPK_VERSION} ${PLATFORM}' < tpk/config.ini.template > /tmp/config.ini
+          jq -e '.id == "cryptomator" and .version == "1.2.3.1" and .type == "iframe" and .platform == "x86_64"' /tmp/config.ini
           jq -e 'type == "array" and length > 0' tpk/modules/index.json
       - name: Validate WebUI archive
         run: |

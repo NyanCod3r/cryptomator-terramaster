@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: tnas-release
+  cancel-in-progress: false
+
 env:
   UPSTREAM_REPO: cryptomator/cryptomator
   CLI_REPO: cryptomator/cli
@@ -35,36 +39,47 @@ jobs:
         run: |
           if [ -n "$FORCE_VERSION" ]; then
             echo "Forced version: $FORCE_VERSION"
-            echo "version=$FORCE_VERSION" >> "$GITHUB_OUTPUT"
-            echo "new_release=true" >> "$GITHUB_OUTPUT"
-            exit 0
+            UPSTREAM_RELEASE_URL="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/tags/${FORCE_VERSION}"
+            FORCED_BUILD=true
+          else
+            UPSTREAM_RELEASE_URL="https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest"
+            FORCED_BUILD=false
           fi
 
           UPSTREAM_TAG=$(curl -sf \
             -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ env.UPSTREAM_REPO }}/releases/latest" \
+            "$UPSTREAM_RELEASE_URL" \
             | jq -r '.tag_name')
-
-          LOCAL_TAG=$(curl -sf \
-            -H "Authorization: token $GH_TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
-            | jq -r '.tag_name // empty' 2>/dev/null || true)
-
-          echo "Upstream: $UPSTREAM_TAG | Local: $LOCAL_TAG"
 
           if [ -z "$UPSTREAM_TAG" ] || [ "$UPSTREAM_TAG" = "null" ]; then
             echo "::error::Failed to fetch upstream release tag"
             echo "new_release=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          echo "version=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
+
+          if [ "$FORCED_BUILD" = "true" ]; then
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if [ "$UPSTREAM_TAG" != "$LOCAL_TAG" ]; then
-            echo "New release detected: $UPSTREAM_TAG"
-            echo "version=$UPSTREAM_TAG" >> "$GITHUB_OUTPUT"
-            echo "new_release=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Already up to date"
+          EXPECTED_X64="${{ env.APP_NAME }} TOS7_TOS6 ${UPSTREAM_TAG}.${{ env.PKG_REVISION }} x86_64.tpk"
+          EXPECTED_ARM="${{ env.APP_NAME }} TOS6 ${UPSTREAM_TAG}.${{ env.PKG_REVISION }} aarch64.tpk"
+          LOCAL_RELEASE=$(curl -sS \
+            -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${UPSTREAM_TAG}")
+
+          if jq -e \
+            --arg x64 "$EXPECTED_X64" \
+            --arg arm "$EXPECTED_ARM" \
+            '[.assets[]?.name] as $assets | ($assets | index($x64)) != null and ($assets | index($arm)) != null' \
+            >/dev/null <<< "$LOCAL_RELEASE"; then
+            echo "Release ${UPSTREAM_TAG} already contains revision ${{ env.PKG_REVISION }} for both architectures"
             echo "new_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release ${UPSTREAM_TAG} is missing one or more revision-${{ env.PKG_REVISION }} packages"
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
           fi
 
   build-tpk:
@@ -269,7 +284,7 @@ jobs:
         run: ls -lh dist/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.VERSION }}
           name: "Cryptomator ${{ env.VERSION }} for TerraMaster TOS"
@@ -296,6 +311,8 @@ jobs:
             - Engine: [cryptomator/cli](https://github.com/cryptomator/cli) (latest)
             - Packaged using [TerraMaster app-pkg-tools](https://github.com/TerraMasterOfficial/app-pkg-tools)
           files: dist/*.tpk
+          fail_on_unmatched_files: true
+          overwrite_files: true
           draft: false
           prerelease: false
         env:
